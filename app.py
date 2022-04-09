@@ -3,13 +3,15 @@ import toml
 import json
 import tweepy
 import datetime
+import csv
+import pandas as pd
 
 
 def _get_current_time() -> datetime:
     return datetime.datetime.today().strftime("%Y-%m-%d")
 
 
-def fetch_tweets() -> str:
+def fetch_tweets():
     current_time = _get_current_time()
     file_name = f"top-trends-in-us-{current_time}.json"
     local_files = os.listdir()
@@ -17,7 +19,7 @@ def fetch_tweets() -> str:
         print(f"We have got the latest tweets from {file_name}")
         return file_name
     else:
-        config = toml.load('config.toml')
+        config = toml.load("config.toml")
         bearer_token = config["BEARER_TOKEN"]
         woeid = config["WOEID"]
         auth = tweepy.OAuth2BearerHandler(bearer_token)
@@ -25,31 +27,51 @@ def fetch_tweets() -> str:
 
         # fetching the trendy topics
         trends = api.get_place_trends(id=woeid)
-        with open(file_name, "w") as wp:
+        with open(f"data/trends/{file_name}", "w") as wp:
             wp.write(json.dumps(trends, indent=1))
-        return file_name
 
 
-def read_and_sort_tweets(source: str) -> str:
-    json_file = open(source, 'r')
-    trend_list = json.load(json_file)[0]['trends']
-    unsorted_topics = [(t['name'], t['tweet_volume']) for t in trend_list if t['tweet_volume'] is not None]
+def read_and_sort_tweets():
+    files = [f for f in os.listdir("data/trends") if not f.endswith("DS_Store")]
+    sorted_files = sorted(
+        files,
+        key=lambda date: datetime.datetime.strptime(date[17:-5], "%Y-%m-%d"),
+        reverse=True,
+    )
+    latest_file = sorted_files[0]
+    json_file = open(f"data/trends/{latest_file}", "r")
+    trend_list = json.load(json_file)[0]["trends"]
+    unsorted_topics = [
+        (t["name"], t["tweet_volume"])
+        for t in trend_list
+        if t["tweet_volume"] is not None
+    ]
     sorted_topics = sorted(unsorted_topics, key=lambda t: int(t[1]), reverse=True)
     json_file.close()
     current_time = _get_current_time()
-    file_name = f"top-10-trends-in-us-{current_time}.json"
-    with open(file_name, "w") as wp:
-        wp.write(json.dumps(sorted_topics, indent=1))
-    return file_name
+    file_name = f"top-10-trends-in-us-{current_time}.csv"
+    with open(f"data/sorted_trends/{file_name}", "w") as csv_file:
+        column_names = ["name", "volume", "class_value"]
+        writer = csv.DictWriter(csv_file, fieldnames=column_names)
+        writer.writeheader()
+        for t in sorted_topics:
+            writer.writerow({"name": t[0], "volume": t[1], "class_value": 0})
 
 
-def analyse_tweets(source: str):
-    json_file = open(source, 'r')
-    for t in json.load(json_file):
-        print(f"{t[0]} - {t[1]}")
+def analyse_tweets():
+    files = [f for f in os.listdir("data/sorted_trends") if not f.endswith("DS_Store")]
+    sorted_files = sorted(
+        files,
+        key=lambda date: datetime.datetime.strptime(date[20:-4], "%Y-%m-%d"),
+        reverse=True,
+    )
+    latest_source = sorted_files[0]
+    csv_file = open(f"data/sorted_trends/{latest_source}", "r")
+    raw_data = pd.read_csv(csv_file)
+    print(raw_data)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     file = fetch_tweets()
-    sorted_trend_list = read_and_sort_tweets(source=file)
-    analyse_tweets(source=sorted_trend_list)
+    read_and_sort_tweets()
+    analyse_tweets()
