@@ -69,15 +69,18 @@ def analyse_tweets():
     )
     latest_source = sorted_files[0]
     csv_file = open(f"data/sorted_trends/{latest_source}", "r")
-    raw_data = pd.read_csv(csv_file)
+    featured_data = pd.read_csv(csv_file)
     nlp = spacy.load("en_core_web_sm")
     labels = []
-    for t in raw_data.iloc[:, 1].values:
+    for t in featured_data.iloc[:, 1].values:
         doc = nlp(str(t).replace("#", ''))
         label = [entity.label_ if entity else ' ' for entity in doc.ents]
         labels.append(''.join(label))
-    raw_data.insert(3, "features", labels)
-    print(raw_data)
+    featured_data.insert(3, "features", labels)
+    current_time= _get_current_time()
+    dirname = os.path.dirname(__file__)
+    filename = os.path.join(dirname, f'data/categorised_data/{current_time}.csv')
+    featured_data.to_csv(filename)
 
 
 if __name__ == "__main__":
