@@ -1,10 +1,12 @@
 import os
+
 import toml
 import json
 import tweepy
 import datetime
 import csv
 import pandas as pd
+import spacy
 
 
 def _get_current_time() -> datetime:
@@ -51,7 +53,7 @@ def read_and_sort_tweets():
     current_time = _get_current_time()
     file_name = f"top-10-trends-in-us-{current_time}.csv"
     with open(f"data/sorted_trends/{file_name}", "w") as csv_file:
-        column_names = ["name", "volume", "class_value"]
+        column_names = ["class_value", "name", "volume"]
         writer = csv.DictWriter(csv_file, fieldnames=column_names)
         writer.writeheader()
         for t in sorted_topics:
@@ -68,6 +70,13 @@ def analyse_tweets():
     latest_source = sorted_files[0]
     csv_file = open(f"data/sorted_trends/{latest_source}", "r")
     raw_data = pd.read_csv(csv_file)
+    nlp = spacy.load("en_core_web_sm")
+    labels = []
+    for t in raw_data.iloc[:, 1].values:
+        doc = nlp(str(t).replace("#", ''))
+        label = [entity.label_ if entity else ' ' for entity in doc.ents]
+        labels.append(''.join(label))
+    raw_data.insert(3, "features", labels)
     print(raw_data)
 
 
