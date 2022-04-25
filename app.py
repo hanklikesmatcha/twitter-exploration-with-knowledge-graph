@@ -7,10 +7,46 @@ import datetime
 import csv
 import pandas as pd
 import spacy
+from spacy import matcher as spacy_matcher
+from tqdm import tqdm
+import networkx as nx
+import matplotlib.pyplot as plt
+
+
+def _get_nlp():
+    return spacy.load("en_core_web_sm")
+
+
+def _get_files(folder: str):
+    return [f for f in os.listdir(f"data/{folder}") if not f.endswith("DS_Store")]
 
 
 def _get_current_time() -> datetime:
     return datetime.datetime.today().strftime("%Y-%m-%d")
+
+
+def _get_relation(input):
+    nlp = _get_nlp()
+    doc = nlp(input)
+
+    # Matcher class object
+    matcher = spacy_matcher.Matcher(nlp.vocab)
+    # define the pattern
+    pattern = [
+        {"DEP": "ROOT"},
+        {"DEP": "prep", "OP": "?"},
+        {"DEP": "agent", "OP": "?"},
+        {"POS": "ADJ", "OP": "?"},
+    ]
+
+    matcher.add("matching_1", [pattern])
+
+    matches = matcher(doc)
+    k = len(matches) - 1
+
+    span = doc[matches[k][1] : matches[k][2]]
+
+    return span.text
 
 
 def fetch_tweets():
@@ -61,7 +97,7 @@ def read_and_sort_tweets():
 
 
 def analyse_tweets():
-    files = [f for f in os.listdir("data/sorted_trends") if not f.endswith("DS_Store")]
+    files = _get_files(folder="sorted_trends")
     sorted_files = sorted(
         files,
         key=lambda date: datetime.datetime.strptime(date[20:-4], "%Y-%m-%d"),
@@ -70,20 +106,113 @@ def analyse_tweets():
     latest_source = sorted_files[0]
     csv_file = open(f"data/sorted_trends/{latest_source}", "r")
     featured_data = pd.read_csv(csv_file)
-    nlp = spacy.load("en_core_web_sm")
+    nlp = _get_nlp()
     labels = []
     for t in featured_data.iloc[:, 1].values:
-        doc = nlp(str(t).replace("#", ''))
-        label = [entity.label_ if entity else ' ' for entity in doc.ents]
-        labels.append(''.join(label))
+        doc = nlp(str(t).replace("#", ""))
+        label = [entity.label_ if entity else " " for entity in doc.ents]
+        labels.append("".join(label))
     featured_data.insert(3, "features", labels)
-    current_time= _get_current_time()
+    current_time = _get_current_time()
     dirname = os.path.dirname(__file__)
-    filename = os.path.join(dirname, f'data/categorised_data/{current_time}.csv')
+    filename = os.path.join(dirname, f"data/categorised_data/{current_time}.csv")
     featured_data.to_csv(filename)
+
+
+def find_relation():
+    files = _get_files(folder="categorised_data")
+    sorted_files = sorted(
+        files,
+        key=lambda date: datetime.datetime.strptime(date[0:-4], "%Y-%m-%d"),
+        reverse=True,
+    )
+    # latest_source = sorted_files[0]
+    with open(f"tmp.csv", "wb") as write:
+        for f in files:
+            with open(f"data/categorised_data/{f}", "rb") as read:
+                next(read)
+                write.write(read.read())
+    featured_data = pd.read_csv("tmp.csv").fillna("UNKNOWN")
+    featured_data.columns = ["id", "class_value", "name", "volume", "features"]
+    print(featured_data)
+    entity_pairs = [(i[2], i[4]) for i in featured_data.values]
+    relations = [_get_relation(i) for i in tqdm(featured_data["features"])]
+    ranking = pd.Series(relations).value_counts()[:5]
+    print(ranking)
+    # extract subject
+    source = [i[0] for i in entity_pairs]
+
+    # extract object
+    target = [i[1] for i in entity_pairs]
+
+    kg_df = pd.DataFrame({"source": source, "target": target, "edge": relations})
+    print(kg_df)
+    # create a directed-graph from a dataframe
+    # Composed By
+    G = nx.from_pandas_edgelist(
+        kg_df[kg_df["edge"] == "PERSON"],
+        "source",
+        "target",
+        edge_attr=True,
+        create_using=nx.MultiDiGraph(),
+    )
+
+    plt.figure(figsize=(12, 12))
+    pos = nx.spring_layout(G, k=0.5)  # k regulates the distance between nodes
+    nx.draw(
+        G,
+        with_labels=True,
+        node_color="red",
+        node_size=1500,
+        edge_cmap=plt.cm.Blues,
+        pos=pos,
+        font_weight="bold",
+    )
+    plt.show()
+    # Written By
+    G = nx.from_pandas_edgelist(
+        kg_df[kg_df["edge"] == "ORG"],
+        "source",
+        "target",
+        edge_attr=True,
+        create_using=nx.MultiDiGraph(),
+    )
+
+    plt.figure(figsize=(12, 12))
+    pos = nx.spring_layout(G, k=0.5)
+    nx.draw(
+        G,
+        with_labels=True,
+        node_color="red",
+        node_size=1500,
+        edge_cmap=plt.cm.Blues,
+        pos=pos,
+    )
+    plt.show()
+    # Release In
+    G = nx.from_pandas_edgelist(
+        kg_df[kg_df["edge"] == "GPE"],
+        "source",
+        "target",
+        edge_attr=True,
+        create_using=nx.MultiDiGraph(),
+    )
+
+    plt.figure(figsize=(12, 12))
+    pos = nx.spring_layout(G, k=0.5)
+    nx.draw(
+        G,
+        with_labels=True,
+        node_color="red",
+        node_size=1500,
+        edge_cmap=plt.cm.Blues,
+        pos=pos,
+    )
+    plt.show()
 
 
 if __name__ == "__main__":
     file = fetch_tweets()
     read_and_sort_tweets()
     analyse_tweets()
+    find_relation()
